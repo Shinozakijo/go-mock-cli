@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shinozakijo/go-mock-cli/internal/model"
 )
@@ -18,7 +20,6 @@ func NewResponseRepository(db *pgxpool.Pool) *ResponseRepository {
 	return &ResponseRepository{db: db}
 }
 
-// ดึง responses ทั้งหมดของ route
 func (r *ResponseRepository) GetByRouteID(ctx context.Context, routeID string) ([]model.Response, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, route_id, name, status_code, body, headers, delay_ms, is_active, created_at, updated_at
@@ -47,7 +48,6 @@ func (r *ResponseRepository) GetByRouteID(ctx context.Context, routeID string) (
 	return responses, nil
 }
 
-// ดึง active response ของ route (ใช้ตอน mock server ส่ง response)
 func (r *ResponseRepository) GetActiveByRouteID(ctx context.Context, routeID string) (*model.Response, error) {
 	var res model.Response
 	err := r.db.QueryRow(ctx, `
@@ -61,12 +61,14 @@ func (r *ResponseRepository) GetActiveByRouteID(ctx context.Context, routeID str
 		&res.CreatedAt, &res.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("active response not found")
+		}
 		return nil, fmt.Errorf("GetActiveByRouteID: %w", err)
 	}
 	return &res, nil
 }
 
-// เพิ่ม response ใหม่
 func (r *ResponseRepository) Create(ctx context.Context, routeID, name string, statusCode int, body, headers json.RawMessage, delayMs int) (*model.Response, error) {
 	var res model.Response
 	err := r.db.QueryRow(ctx, `
@@ -84,7 +86,6 @@ func (r *ResponseRepository) Create(ctx context.Context, routeID, name string, s
 	return &res, nil
 }
 
-// เปลี่ยน active response (set ตัวเดิม false หมด แล้ว set ตัวใหม่ true)
 func (r *ResponseRepository) SetActive(ctx context.Context, routeID, responseID string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -92,7 +93,6 @@ func (r *ResponseRepository) SetActive(ctx context.Context, routeID, responseID 
 	}
 	defer tx.Rollback(ctx)
 
-	// ปิด active ทั้งหมดของ route นี้ก่อน
 	_, err = tx.Exec(ctx, `
 		UPDATE responses SET is_active = FALSE, updated_at = $1
 		WHERE route_id = $2
@@ -101,7 +101,6 @@ func (r *ResponseRepository) SetActive(ctx context.Context, routeID, responseID 
 		return fmt.Errorf("deactivate responses: %w", err)
 	}
 
-	// เปิด active ตัวที่เลือก
 	_, err = tx.Exec(ctx, `
 		UPDATE responses SET is_active = TRUE, updated_at = $1
 		WHERE id = $2
@@ -113,7 +112,6 @@ func (r *ResponseRepository) SetActive(ctx context.Context, routeID, responseID 
 	return tx.Commit(ctx)
 }
 
-// ลบ response
 func (r *ResponseRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM responses WHERE id = $1`, id)
 	if err != nil {

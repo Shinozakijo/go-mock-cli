@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shinozakijo/go-mock-cli/internal/model"
 )
@@ -17,7 +19,6 @@ func NewRouteRepository(db *pgxpool.Pool) *RouteRepository {
 	return &RouteRepository{db: db}
 }
 
-// ดึง routes ทั้งหมด
 func (r *RouteRepository) GetAll(ctx context.Context) ([]model.Route, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, method, path, description, created_at, updated_at
@@ -44,7 +45,6 @@ func (r *RouteRepository) GetAll(ctx context.Context) ([]model.Route, error) {
 	return routes, nil
 }
 
-// ดึง route ด้วย method + path (ใช้ตอน mock server match request)
 func (r *RouteRepository) GetByMethodAndPath(ctx context.Context, method, path string) (*model.Route, error) {
 	var route model.Route
 	err := r.db.QueryRow(ctx, `
@@ -56,12 +56,14 @@ func (r *RouteRepository) GetByMethodAndPath(ctx context.Context, method, path s
 		&route.Description, &route.CreatedAt, &route.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("route not found")
+		}
 		return nil, fmt.Errorf("GetByMethodAndPath: %w", err)
 	}
 	return &route, nil
 }
 
-// เพิ่ม route ใหม่
 func (r *RouteRepository) Create(ctx context.Context, method, path, description string) (*model.Route, error) {
 	var route model.Route
 	err := r.db.QueryRow(ctx, `
@@ -78,7 +80,6 @@ func (r *RouteRepository) Create(ctx context.Context, method, path, description 
 	return &route, nil
 }
 
-// ลบ route
 func (r *RouteRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM routes WHERE id = $1`, id)
 	if err != nil {
