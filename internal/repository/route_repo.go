@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -46,6 +47,8 @@ func (r *RouteRepository) GetAll(ctx context.Context) ([]model.Route, error) {
 }
 
 func (r *RouteRepository) GetByMethodAndPath(ctx context.Context, method, path string) (*model.Route, error) {
+	method = strings.ToUpper(method)
+
 	var route model.Route
 	err := r.db.QueryRow(ctx, `
 		SELECT id, method, path, description, created_at, updated_at
@@ -65,6 +68,8 @@ func (r *RouteRepository) GetByMethodAndPath(ctx context.Context, method, path s
 }
 
 func (r *RouteRepository) Create(ctx context.Context, method, path, description string) (*model.Route, error) {
+	method = strings.ToUpper(method)
+
 	var route model.Route
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO routes (method, path, description, updated_at)
