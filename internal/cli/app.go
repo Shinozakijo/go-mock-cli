@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/shinozakijo/go-mock-cli/internal/repository"
 	"github.com/shinozakijo/go-mock-cli/internal/server"
@@ -164,17 +162,7 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("invalid status-code: %w", err)
 		}
 
-		var bodyBytes []byte
-		if args[5] == "-" {
-			data, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				return fmt.Errorf("failed to read from stdin: %w", err)
-			}
-			bodyBytes = []byte(strings.TrimSpace(string(data)))
-		} else {
-			bodyBytes = []byte(args[5])
-		}
-		body := json.RawMessage(bodyBytes)
+		body := json.RawMessage(args[5])
 		if !json.Valid(body) {
 			return fmt.Errorf("body must be valid JSON")
 		}
@@ -192,6 +180,43 @@ func (a *App) handleResponse(args []string) error {
 		}
 
 		fmt.Printf("✅ response created for %s %s: %s | %s | %d\n",
+			route.Method, route.Path, response.ID, response.Name, response.StatusCode)
+		return nil
+
+	case "add-file":
+		if len(args) < 6 {
+			return fmt.Errorf("usage: response add-file <METHOD> <PATH> <NAME> <STATUS-CODE> <JSON-FILE>")
+		}
+
+		method := args[1]
+		path := args[2]
+		name := args[3]
+
+		statusCode, err := strconv.Atoi(args[4])
+		if err != nil {
+			return fmt.Errorf("invalid status-code: %w", err)
+		}
+
+		filePath := args[5]
+
+		body, err := readJSONFile(filePath)
+		if err != nil {
+			return err
+		}
+
+		route, err := a.routeRepo.GetByMethodAndPath(ctx, method, path)
+		if err != nil {
+			return fmt.Errorf("route not found for %s %s: %w", method, path, err)
+		}
+
+		headers := json.RawMessage(`{"Content-Type":"application/json"}`)
+
+		response, err := a.responseRepo.Create(ctx, route.ID, name, statusCode, body, headers, 0)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("✅ response created from file for %s %s: %s | %s | %d\n",
 			route.Method, route.Path, response.ID, response.Name, response.StatusCode)
 		return nil
 
@@ -214,6 +239,41 @@ func (a *App) handleResponse(args []string) error {
 		}
 
 		fmt.Printf("✅ response activated for %s %s\n", route.Method, route.Path)
+		return nil
+
+	case "edit":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: response edit <response-id>")
+		}
+
+		responseID := args[1]
+
+		response, err := a.responseRepo.GetByID(ctx, responseID)
+		if err != nil {
+			return err
+		}
+
+		tempFile, err := writeTempFile("mock-response-body", response.Body)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(tempFile)
+
+		fmt.Printf("opening editor for response: %s\n", response.ID)
+		if err := openEditor(tempFile); err != nil {
+			return fmt.Errorf("open editor: %w", err)
+		}
+
+		updatedBody, err := readJSONFile(tempFile)
+		if err != nil {
+			return fmt.Errorf("invalid edited JSON: %w", err)
+		}
+
+		if err := a.responseRepo.UpdateBody(ctx, response.ID, updatedBody); err != nil {
+			return err
+		}
+
+		fmt.Println("✅ response body updated")
 		return nil
 
 	default:
@@ -239,6 +299,12 @@ func (a *App) printHelp() {
 	fmt.Println("  response add <METHOD> <PATH> <NAME> <STATUS-CODE> <BODY-JSON>")
 	fmt.Println("      create a response for an API route")
 	fmt.Println("")
+	fmt.Println("  response add-file <METHOD> <PATH> <NAME> <STATUS-CODE> <JSON-FILE>")
+	fmt.Println("      create a response from JSON file")
+	fmt.Println("")
 	fmt.Println("  response activate <METHOD> <PATH> <response-id>")
 	fmt.Println("      set active response for an API route")
+	fmt.Println("")
+	fmt.Println("  response edit <response-id>")
+	fmt.Println("      open editor to edit response body")
 }

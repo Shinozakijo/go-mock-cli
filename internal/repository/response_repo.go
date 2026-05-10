@@ -20,6 +20,26 @@ func NewResponseRepository(db *pgxpool.Pool) *ResponseRepository {
 	return &ResponseRepository{db: db}
 }
 
+func (r *ResponseRepository) GetByID(ctx context.Context, id string) (*model.Response, error) {
+	var res model.Response
+	err := r.db.QueryRow(ctx, `
+		SELECT id, route_id, name, status_code, body, headers, delay_ms, is_active, created_at, updated_at
+		FROM responses
+		WHERE id = $1
+	`, id).Scan(
+		&res.ID, &res.RouteID, &res.Name, &res.StatusCode,
+		&res.Body, &res.Headers, &res.DelayMs, &res.IsActive,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("response not found")
+		}
+		return nil, fmt.Errorf("GetByID: %w", err)
+	}
+	return &res, nil
+}
+
 func (r *ResponseRepository) GetByRouteID(ctx context.Context, routeID string) ([]model.Response, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, route_id, name, status_code, body, headers, delay_ms, is_active, created_at, updated_at
@@ -110,6 +130,18 @@ func (r *ResponseRepository) SetActive(ctx context.Context, routeID, responseID 
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (r *ResponseRepository) UpdateBody(ctx context.Context, id string, body json.RawMessage) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE responses
+		SET body = $1, updated_at = $2
+		WHERE id = $3
+	`, body, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("UpdateBody: %w", err)
+	}
+	return nil
 }
 
 func (r *ResponseRepository) Delete(ctx context.Context, id string) error {
