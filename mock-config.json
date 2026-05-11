@@ -1,0 +1,57 @@
+{
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/payment",
+      "description": "Payment API mock",
+      "responses": [
+        {
+          "name": "success",
+          "status_code": 200,
+          "is_active": true,
+          "delay_ms": 0,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "status": "success",
+            "amount": 20000
+          }
+        },
+        {
+          "name": "fail",
+          "status_code": 400,
+          "is_active": false,
+          "delay_ms": 0,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "status": "fail",
+            "message": "payment failed"
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/refund",
+      "description": "Refund API mock",
+      "responses": [
+        {
+          "name": "refund_ok",
+          "status_code": 200,
+          "is_active": true,
+          "delay_ms": 500,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "status": "success",
+            "refund_id": "REF-001"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shinozakijo/go-mock-cli/internal/repository"
+	seedpkg "github.com/shinozakijo/go-mock-cli/internal/seed"
 	"github.com/shinozakijo/go-mock-cli/internal/server"
 	"github.com/shinozakijo/go-mock-cli/internal/service"
 )
@@ -44,6 +45,23 @@ func (a *App) Run(args []string) error {
 		return a.handleRoute(args[1:])
 	case "response":
 		return a.handleResponse(args[1:])
+	case "seed":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: seed <config-file>")
+		}
+
+		mockCfg, err := seedpkg.LoadConfig(args[1])
+		if err != nil {
+			return err
+		}
+
+		seeder := seedpkg.NewSeeder(a.routeRepo, a.responseRepo)
+		if err := seeder.Run(mockCfg); err != nil {
+			return err
+		}
+
+		fmt.Println("✅ seed complete")
+		return nil
 	case "help":
 		a.printHelp()
 		return nil
@@ -516,5 +534,7 @@ func (a *App) printHelp() {
 	fmt.Println("    response update-status <response-id> <status-code>        update status code")
 	fmt.Println("    response update-delay <response-id> <delay-ms>            update delay (ms)")
 	fmt.Println("    response delete <response-id>                             delete response")
+	fmt.Println("  seed <config-file>")
+	fmt.Println("      seed routes & responses from JSON config file")
 	fmt.Println()
 }

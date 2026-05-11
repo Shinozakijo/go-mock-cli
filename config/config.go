@@ -14,10 +14,10 @@ type Config struct {
 	DBPassword string
 	DBName     string
 	ServerPort string
+	SeedFile   string // path ไปยัง mock-config.json
 }
 
 func Load() *Config {
-	// โหลด .env ถ้ามี (ถ้าไม่มีก็ไม่ error)
 	_ = godotenv.Load()
 
 	cfg := &Config{
@@ -27,6 +27,7 @@ func Load() *Config {
 		DBPassword: getEnv("DB_PASSWORD", "postgres"),
 		DBName:     getEnv("DB_NAME", "gomock"),
 		ServerPort: getEnv("SERVER_PORT", "8080"),
+		SeedFile:   getEnv("SEED_FILE", ""),
 	}
 
 	log.Printf("✅ Config loaded | DB: %s:%s/%s | Server: :%s",

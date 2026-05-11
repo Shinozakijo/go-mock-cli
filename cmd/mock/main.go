@@ -9,6 +9,7 @@ import (
 	"github.com/shinozakijo/go-mock-cli/internal/cli"
 	"github.com/shinozakijo/go-mock-cli/internal/db"
 	"github.com/shinozakijo/go-mock-cli/internal/repository"
+	"github.com/shinozakijo/go-mock-cli/internal/seed"
 	"github.com/shinozakijo/go-mock-cli/internal/tui"
 )
 
@@ -30,6 +31,13 @@ func main() {
 	routeRepo := repository.NewRouteRepository(pool)
 	responseRepo := repository.NewResponseRepository(pool)
 
+	// ─── Auto Seed ────────────────────────────────
+	if cfg.SeedFile != "" {
+		if err := runSeed(cfg.SeedFile, routeRepo, responseRepo); err != nil {
+			log.Fatalf("❌ Seed error: %v", err)
+		}
+	}
+
 	args := os.Args[1:]
 
 	// ไม่มี args หรือ "ui" → เปิด TUI
@@ -40,9 +48,19 @@ func main() {
 		return
 	}
 
-	// มี args → ใช้ CLI command
+	// CLI command
 	app := cli.NewApp(routeRepo, responseRepo, cfg.ServerPort)
 	if err := app.Run(args); err != nil {
 		log.Fatalf("❌ %v", err)
 	}
+}
+
+func runSeed(filePath string, routeRepo *repository.RouteRepository, responseRepo *repository.ResponseRepository) error {
+	mockCfg, err := seed.LoadConfig(filePath)
+	if err != nil {
+		return err
+	}
+
+	seeder := seed.NewSeeder(routeRepo, responseRepo)
+	return seeder.Run(mockCfg)
 }

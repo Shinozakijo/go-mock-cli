@@ -7,9 +7,34 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: gomock
     ports:
-      - "5432:5432"
+      - "5432:5432"   # expose ออกมาให้ local ต่อได้
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mock-server:
+    build: .
+    container_name: go-mock-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: gomock
+      SERVER_PORT: 8080
+      SEED_FILE: /app/mock-config.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./mock-config.json:/app/mock-config.json
+    command: ["serve"]
 
 volumes:
   pgdata:
