@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/shinozakijo/go-mock-cli/internal/repository"
 	"github.com/shinozakijo/go-mock-cli/internal/server"
@@ -39,34 +40,37 @@ func (a *App) Run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return a.runServer()
-
 	case "route":
 		return a.handleRoute(args[1:])
-
 	case "response":
 		return a.handleResponse(args[1:])
-
 	case "help":
 		a.printHelp()
 		return nil
-
 	default:
-		return fmt.Errorf("unknown command: %s", args[0])
+		return fmt.Errorf("unknown command: %s\nrun 'help' to see available commands", args[0])
 	}
 }
+
+// ─────────────────────────────────────────────
+// Server
+// ─────────────────────────────────────────────
 
 func (a *App) runServer() error {
 	mockService := service.NewMockService(a.routeRepo, a.responseRepo)
 	handler := server.NewHandler(mockService)
 	srv := server.New(a.serverPort, handler)
-
 	fmt.Printf("🌐 Mock server running on http://localhost:%s\n", a.serverPort)
 	return srv.Start()
 }
 
+// ─────────────────────────────────────────────
+// Route
+// ─────────────────────────────────────────────
+
 func (a *App) handleRoute(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing route command")
+		return fmt.Errorf("missing route command\n  try: route list | route add | route show | route delete")
 	}
 
 	ctx := context.Background()
@@ -77,15 +81,7 @@ func (a *App) handleRoute(args []string) error {
 		if err != nil {
 			return err
 		}
-
-		if len(routes) == 0 {
-			fmt.Println("no routes found")
-			return nil
-		}
-
-		for _, r := range routes {
-			fmt.Printf("%s | %s | %s | %s\n", r.ID, r.Method, r.Path, r.Description)
-		}
+		printRouteTable(routes)
 		return nil
 
 	case "add":
@@ -93,16 +89,68 @@ func (a *App) handleRoute(args []string) error {
 			return fmt.Errorf("usage: route add <METHOD> <PATH> <DESCRIPTION>")
 		}
 
-		method := args[1]
+		method := strings.ToUpper(args[1])
 		path := args[2]
 		description := args[3]
+
+		if err := validateMethod(method); err != nil {
+			return err
+		}
+		if err := validatePath(path); err != nil {
+			return err
+		}
 
 		route, err := a.routeRepo.Create(ctx, method, path, description)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("✅ route created: %s | %s | %s | %s\n", route.ID, route.Method, route.Path, route.Description)
+		fmt.Printf("✅ route created\n")
+		printRouteDetail(*route)
+		return nil
+
+	case "show":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: route show <METHOD> <PATH>")
+		}
+
+		method := strings.ToUpper(args[1])
+		path := args[2]
+
+		route, err := a.routeRepo.GetByMethodAndPath(ctx, method, path)
+		if err != nil {
+			return err
+		}
+
+		responses, err := a.responseRepo.GetByRouteID(ctx, route.ID)
+		if err != nil {
+			return err
+		}
+
+		printRouteDetail(*route)
+		fmt.Printf(colorBold + "  Responses:\n" + colorReset)
+		printResponseTable(responses)
+		return nil
+
+	case "delete":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: route delete <METHOD> <PATH>")
+		}
+
+		method := strings.ToUpper(args[1])
+		path := args[2]
+
+		// เช็กก่อนว่ามีจริง
+		if _, err := a.routeRepo.GetByMethodAndPath(ctx, method, path); err != nil {
+			return fmt.Errorf("route not found: %s %s", method, path)
+		}
+
+		if err := a.routeRepo.DeleteByMethodAndPath(ctx, method, path); err != nil {
+			return err
+		}
+
+		fmt.Printf("✅ route deleted: %s %s\n", method, path)
+		fmt.Println(colorYellow + "  ⚠ all responses for this route have been deleted" + colorReset)
 		return nil
 
 	default:
@@ -110,9 +158,13 @@ func (a *App) handleRoute(args []string) error {
 	}
 }
 
+// ─────────────────────────────────────────────
+// Response
+// ─────────────────────────────────────────────
+
 func (a *App) handleResponse(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing response command")
+		return fmt.Errorf("missing response command\n  try: response list | response add | response show | response edit-all | response activate | response delete")
 	}
 
 	ctx := context.Background()
@@ -123,12 +175,12 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("usage: response list <METHOD> <PATH>")
 		}
 
-		method := args[1]
+		method := strings.ToUpper(args[1])
 		path := args[2]
 
 		route, err := a.routeRepo.GetByMethodAndPath(ctx, method, path)
 		if err != nil {
-			return fmt.Errorf("route not found for %s %s: %w", method, path, err)
+			return fmt.Errorf("route not found for %s %s", method, path)
 		}
 
 		responses, err := a.responseRepo.GetByRouteID(ctx, route.ID)
@@ -136,16 +188,21 @@ func (a *App) handleResponse(args []string) error {
 			return err
 		}
 
-		if len(responses) == 0 {
-			fmt.Println("no responses found")
-			return nil
+		fmt.Printf("\n  %s%s %s%s\n", colorBold, route.Method, route.Path, colorReset)
+		printResponseTable(responses)
+		return nil
+
+	case "show":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: response show <response-id>")
 		}
 
-		fmt.Printf("responses for %s %s\n", route.Method, route.Path)
-		for _, r := range responses {
-			fmt.Printf("%s | %s | %d | active=%v | delay=%dms | body=%s\n",
-				r.ID, r.Name, r.StatusCode, r.IsActive, r.DelayMs, string(r.Body))
+		response, err := a.responseRepo.GetByID(ctx, args[1])
+		if err != nil {
+			return err
 		}
+
+		printResponseDetail(*response)
 		return nil
 
 	case "add":
@@ -153,7 +210,7 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("usage: response add <METHOD> <PATH> <NAME> <STATUS-CODE> <BODY-JSON>")
 		}
 
-		method := args[1]
+		method := strings.ToUpper(args[1])
 		path := args[2]
 		name := args[3]
 
@@ -163,24 +220,36 @@ func (a *App) handleResponse(args []string) error {
 		}
 
 		body := json.RawMessage(args[5])
+
+		if err := validateMethod(method); err != nil {
+			return err
+		}
+		if err := validatePath(path); err != nil {
+			return err
+		}
+		if err := validateName(name); err != nil {
+			return err
+		}
+		if err := validateStatusCode(statusCode); err != nil {
+			return err
+		}
 		if !json.Valid(body) {
 			return fmt.Errorf("body must be valid JSON")
 		}
 
 		route, err := a.routeRepo.GetByMethodAndPath(ctx, method, path)
 		if err != nil {
-			return fmt.Errorf("route not found for %s %s: %w", method, path, err)
+			return fmt.Errorf("route not found for %s %s", method, path)
 		}
 
 		headers := json.RawMessage(`{"Content-Type":"application/json"}`)
-
 		response, err := a.responseRepo.Create(ctx, route.ID, name, statusCode, body, headers, 0)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("✅ response created for %s %s: %s | %s | %d\n",
-			route.Method, route.Path, response.ID, response.Name, response.StatusCode)
+		fmt.Printf("✅ response created\n")
+		printResponseDetail(*response)
 		return nil
 
 	case "add-file":
@@ -188,7 +257,7 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("usage: response add-file <METHOD> <PATH> <NAME> <STATUS-CODE> <JSON-FILE>")
 		}
 
-		method := args[1]
+		method := strings.ToUpper(args[1])
 		path := args[2]
 		name := args[3]
 
@@ -197,27 +266,37 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("invalid status-code: %w", err)
 		}
 
-		filePath := args[5]
+		if err := validateMethod(method); err != nil {
+			return err
+		}
+		if err := validatePath(path); err != nil {
+			return err
+		}
+		if err := validateName(name); err != nil {
+			return err
+		}
+		if err := validateStatusCode(statusCode); err != nil {
+			return err
+		}
 
-		body, err := readJSONFile(filePath)
+		body, err := readJSONFile(args[5])
 		if err != nil {
 			return err
 		}
 
 		route, err := a.routeRepo.GetByMethodAndPath(ctx, method, path)
 		if err != nil {
-			return fmt.Errorf("route not found for %s %s: %w", method, path, err)
+			return fmt.Errorf("route not found for %s %s", method, path)
 		}
 
 		headers := json.RawMessage(`{"Content-Type":"application/json"}`)
-
 		response, err := a.responseRepo.Create(ctx, route.ID, name, statusCode, body, headers, 0)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("✅ response created from file for %s %s: %s | %s | %d\n",
-			route.Method, route.Path, response.ID, response.Name, response.StatusCode)
+		fmt.Printf("✅ response created from file\n")
+		printResponseDetail(*response)
 		return nil
 
 	case "activate":
@@ -225,13 +304,18 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("usage: response activate <METHOD> <PATH> <response-id>")
 		}
 
-		method := args[1]
+		method := strings.ToUpper(args[1])
 		path := args[2]
 		responseID := args[3]
 
 		route, err := a.routeRepo.GetByMethodAndPath(ctx, method, path)
 		if err != nil {
-			return fmt.Errorf("route not found for %s %s: %w", method, path, err)
+			return fmt.Errorf("route not found for %s %s", method, path)
+		}
+
+		// เช็กว่า response อยู่ภายใต้ route นี้จริง
+		if err := a.responseRepo.CheckExists(ctx, responseID); err != nil {
+			return err
 		}
 
 		if err := a.responseRepo.SetActive(ctx, route.ID, responseID); err != nil {
@@ -246,34 +330,157 @@ func (a *App) handleResponse(args []string) error {
 			return fmt.Errorf("usage: response edit <response-id>")
 		}
 
-		responseID := args[1]
-
-		response, err := a.responseRepo.GetByID(ctx, responseID)
+		response, err := a.responseRepo.GetByID(ctx, args[1])
 		if err != nil {
 			return err
 		}
 
-		tempFile, err := writeTempFile("mock-response-body", response.Body)
+		tempFile, err := writeTempFile("mock-body", response.Body)
 		if err != nil {
 			return err
 		}
 		defer os.Remove(tempFile)
 
-		fmt.Printf("opening editor for response: %s\n", response.ID)
+		fmt.Printf("opening editor for body of: %s\n", response.Name)
 		if err := openEditor(tempFile); err != nil {
 			return fmt.Errorf("open editor: %w", err)
 		}
 
-		updatedBody, err := readJSONFile(tempFile)
+		updated, err := readJSONFile(tempFile)
 		if err != nil {
 			return fmt.Errorf("invalid edited JSON: %w", err)
 		}
 
-		if err := a.responseRepo.UpdateBody(ctx, response.ID, updatedBody); err != nil {
+		if err := a.responseRepo.UpdateBody(ctx, response.ID, updated); err != nil {
 			return err
 		}
 
 		fmt.Println("✅ response body updated")
+		return nil
+
+	case "edit-all":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: response edit-all <response-id>")
+		}
+
+		response, err := a.responseRepo.GetByID(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		editable := EditableResponse{
+			Name:       response.Name,
+			StatusCode: response.StatusCode,
+			DelayMs:    response.DelayMs,
+			Headers:    response.Headers,
+			Body:       response.Body,
+		}
+
+		content, err := json.MarshalIndent(editable, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal editable response: %w", err)
+		}
+
+		tempFile, err := writeTempFile("mock-edit-all", content)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(tempFile)
+
+		fmt.Printf("opening editor for full response: %s\n", response.Name)
+		if err := openEditor(tempFile); err != nil {
+			return fmt.Errorf("open editor: %w", err)
+		}
+
+		updated, err := readEditableResponseFile(tempFile)
+		if err != nil {
+			return err
+		}
+
+		if err := validateName(updated.Name); err != nil {
+			return err
+		}
+		if err := validateStatusCode(updated.StatusCode); err != nil {
+			return err
+		}
+		if err := validateDelay(updated.DelayMs); err != nil {
+			return err
+		}
+
+		if err := a.responseRepo.UpdateAll(
+			ctx,
+			response.ID,
+			updated.Name,
+			updated.StatusCode,
+			updated.Headers,
+			updated.Body,
+			updated.DelayMs,
+		); err != nil {
+			return err
+		}
+
+		fmt.Println("✅ response updated")
+		return nil
+
+	case "update-status":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: response update-status <response-id> <status-code>")
+		}
+
+		statusCode, err := strconv.Atoi(args[2])
+		if err != nil {
+			return fmt.Errorf("invalid status-code: %w", err)
+		}
+
+		if err := validateStatusCode(statusCode); err != nil {
+			return err
+		}
+		if err := a.responseRepo.CheckExists(ctx, args[1]); err != nil {
+			return err
+		}
+		if err := a.responseRepo.UpdateStatusCode(ctx, args[1], statusCode); err != nil {
+			return err
+		}
+
+		fmt.Println("✅ response status updated")
+		return nil
+
+	case "update-delay":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: response update-delay <response-id> <delay-ms>")
+		}
+
+		delayMs, err := strconv.Atoi(args[2])
+		if err != nil {
+			return fmt.Errorf("invalid delay-ms: %w", err)
+		}
+
+		if err := validateDelay(delayMs); err != nil {
+			return err
+		}
+		if err := a.responseRepo.CheckExists(ctx, args[1]); err != nil {
+			return err
+		}
+		if err := a.responseRepo.UpdateDelay(ctx, args[1], delayMs); err != nil {
+			return err
+		}
+
+		fmt.Println("✅ response delay updated")
+		return nil
+
+	case "delete":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: response delete <response-id>")
+		}
+
+		if err := a.responseRepo.CheckExists(ctx, args[1]); err != nil {
+			return err
+		}
+		if err := a.responseRepo.Delete(ctx, args[1]); err != nil {
+			return err
+		}
+
+		fmt.Println("✅ response deleted")
 		return nil
 
 	default:
@@ -281,30 +488,33 @@ func (a *App) handleResponse(args []string) error {
 	}
 }
 
+// ─────────────────────────────────────────────
+// Help
+// ─────────────────────────────────────────────
+
 func (a *App) printHelp() {
-	fmt.Println("go-mock-cli commands:")
-	fmt.Println("")
-	fmt.Println("  serve")
-	fmt.Println("      start mock HTTP server")
-	fmt.Println("")
-	fmt.Println("  route list")
-	fmt.Println("      list all routes")
-	fmt.Println("")
-	fmt.Println("  route add <METHOD> <PATH> <DESCRIPTION>")
-	fmt.Println("      create a route")
-	fmt.Println("")
-	fmt.Println("  response list <METHOD> <PATH>")
-	fmt.Println("      list responses for an API route")
-	fmt.Println("")
-	fmt.Println("  response add <METHOD> <PATH> <NAME> <STATUS-CODE> <BODY-JSON>")
-	fmt.Println("      create a response for an API route")
-	fmt.Println("")
-	fmt.Println("  response add-file <METHOD> <PATH> <NAME> <STATUS-CODE> <JSON-FILE>")
-	fmt.Println("      create a response from JSON file")
-	fmt.Println("")
-	fmt.Println("  response activate <METHOD> <PATH> <response-id>")
-	fmt.Println("      set active response for an API route")
-	fmt.Println("")
-	fmt.Println("  response edit <response-id>")
-	fmt.Println("      open editor to edit response body")
+	fmt.Println()
+	fmt.Println(colorBold + "  go-mock-cli" + colorReset)
+	fmt.Println()
+	fmt.Println(colorBold + "  Server" + colorReset)
+	fmt.Println("    serve                                                     start mock HTTP server")
+	fmt.Println()
+	fmt.Println(colorBold + "  Route" + colorReset)
+	fmt.Println("    route list                                                list all routes")
+	fmt.Println("    route add <METHOD> <PATH> <DESCRIPTION>                   create a route")
+	fmt.Println("    route show <METHOD> <PATH>                                show route + responses")
+	fmt.Println("    route delete <METHOD> <PATH>                              delete route + all responses")
+	fmt.Println()
+	fmt.Println(colorBold + "  Response" + colorReset)
+	fmt.Println("    response list <METHOD> <PATH>                             list responses for a route")
+	fmt.Println("    response show <response-id>                               show response detail + body")
+	fmt.Println("    response add <METHOD> <PATH> <NAME> <STATUS> <JSON>       create response")
+	fmt.Println("    response add-file <METHOD> <PATH> <NAME> <STATUS> <FILE>  create response from file")
+	fmt.Println("    response activate <METHOD> <PATH> <response-id>           set active response")
+	fmt.Println("    response edit <response-id>                               edit response body in editor")
+	fmt.Println("    response edit-all <response-id>                           edit full response in editor")
+	fmt.Println("    response update-status <response-id> <status-code>        update status code")
+	fmt.Println("    response update-delay <response-id> <delay-ms>            update delay (ms)")
+	fmt.Println("    response delete <response-id>                             delete response")
+	fmt.Println()
 }

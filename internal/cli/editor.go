@@ -7,6 +7,11 @@ import (
 	"runtime"
 )
 
+// OpenEditor exported สำหรับใช้จาก tui package ด้วย
+func OpenEditor(filePath string) error {
+	return openEditor(filePath)
+}
+
 func openEditor(filePath string) error {
 	editor := os.Getenv("EDITOR")
 	if editor != "" {
@@ -17,7 +22,6 @@ func openEditor(filePath string) error {
 		return cmd.Run()
 	}
 
-	// fallback ตาม OS
 	switch runtime.GOOS {
 	case "windows":
 		cmd := exec.Command("notepad", filePath)
@@ -25,15 +29,6 @@ func openEditor(filePath string) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
-
-	case "darwin":
-		// ถ้าไม่มี EDITOR ใช้ nano ก่อน
-		cmd := exec.Command("nano", filePath)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-
 	default:
 		cmd := exec.Command("nano", filePath)
 		cmd.Stdin = os.Stdin

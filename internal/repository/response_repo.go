@@ -144,6 +144,69 @@ func (r *ResponseRepository) UpdateBody(ctx context.Context, id string, body jso
 	return nil
 }
 
+func (r *ResponseRepository) UpdateStatusCode(ctx context.Context, id string, statusCode int) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE responses
+		SET status_code = $1, updated_at = $2
+		WHERE id = $3
+	`, statusCode, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("UpdateStatusCode: %w", err)
+	}
+	return nil
+}
+
+func (r *ResponseRepository) UpdateDelay(ctx context.Context, id string, delayMs int) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE responses
+		SET delay_ms = $1, updated_at = $2
+		WHERE id = $3
+	`, delayMs, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("UpdateDelay: %w", err)
+	}
+	return nil
+}
+
+func (r *ResponseRepository) UpdateAll(
+	ctx context.Context,
+	id string,
+	name string,
+	statusCode int,
+	headers json.RawMessage,
+	body json.RawMessage,
+	delayMs int,
+) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE responses
+		SET name = $1,
+		    status_code = $2,
+		    headers = $3,
+		    body = $4,
+		    delay_ms = $5,
+		    updated_at = $6
+		WHERE id = $7
+	`, name, statusCode, headers, body, delayMs, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("UpdateAll: %w", err)
+	}
+	return nil
+}
+
+func (r *ResponseRepository) CheckExists(ctx context.Context, id string) error {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM responses WHERE id = $1)
+	`, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("CheckExists: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("response not found: %s", id)
+	}
+	return nil
+}
+
 func (r *ResponseRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM responses WHERE id = $1`, id)
 	if err != nil {

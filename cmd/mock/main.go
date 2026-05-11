@@ -9,6 +9,7 @@ import (
 	"github.com/shinozakijo/go-mock-cli/internal/cli"
 	"github.com/shinozakijo/go-mock-cli/internal/db"
 	"github.com/shinozakijo/go-mock-cli/internal/repository"
+	"github.com/shinozakijo/go-mock-cli/internal/tui"
 )
 
 func main() {
@@ -29,9 +30,19 @@ func main() {
 	routeRepo := repository.NewRouteRepository(pool)
 	responseRepo := repository.NewResponseRepository(pool)
 
-	app := cli.NewApp(routeRepo, responseRepo, cfg.ServerPort)
+	args := os.Args[1:]
 
-	if err := app.Run(os.Args[1:]); err != nil {
+	// ไม่มี args หรือ "ui" → เปิด TUI
+	if len(args) == 0 || args[0] == "ui" {
+		if err := tui.Run(routeRepo, responseRepo, cfg.ServerPort); err != nil {
+			log.Fatalf("❌ TUI error: %v", err)
+		}
+		return
+	}
+
+	// มี args → ใช้ CLI command
+	app := cli.NewApp(routeRepo, responseRepo, cfg.ServerPort)
+	if err := app.Run(args); err != nil {
 		log.Fatalf("❌ %v", err)
 	}
 }

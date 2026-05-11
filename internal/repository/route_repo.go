@@ -46,6 +46,25 @@ func (r *RouteRepository) GetAll(ctx context.Context) ([]model.Route, error) {
 	return routes, nil
 }
 
+func (r *RouteRepository) GetByID(ctx context.Context, id string) (*model.Route, error) {
+	var route model.Route
+	err := r.db.QueryRow(ctx, `
+		SELECT id, method, path, description, created_at, updated_at
+		FROM routes
+		WHERE id = $1
+	`, id).Scan(
+		&route.ID, &route.Method, &route.Path,
+		&route.Description, &route.CreatedAt, &route.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("route not found")
+		}
+		return nil, fmt.Errorf("GetByID: %w", err)
+	}
+	return &route, nil
+}
+
 func (r *RouteRepository) GetByMethodAndPath(ctx context.Context, method, path string) (*model.Route, error) {
 	method = strings.ToUpper(method)
 
@@ -83,6 +102,19 @@ func (r *RouteRepository) Create(ctx context.Context, method, path, description 
 		return nil, fmt.Errorf("Create route: %w", err)
 	}
 	return &route, nil
+}
+
+func (r *RouteRepository) DeleteByMethodAndPath(ctx context.Context, method, path string) error {
+	method = strings.ToUpper(method)
+
+	_, err := r.db.Exec(ctx, `
+		DELETE FROM routes
+		WHERE method = $1 AND path = $2
+	`, method, path)
+	if err != nil {
+		return fmt.Errorf("DeleteByMethodAndPath: %w", err)
+	}
+	return nil
 }
 
 func (r *RouteRepository) Delete(ctx context.Context, id string) error {
